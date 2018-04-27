@@ -6,30 +6,601 @@ import (
 	"fmt"
 	"log"
 	"math"
-	//"math/rand"
+	"math/rand"
 	"os"
 	"sort"
 	"time"
 )
 
-type CircleTrack struct {
-	j, k   float64
-	Radius float64
+type Points struct {
+	X, Y float64
 }
 
+type Hint struct {
+	TrackLength float64
+	Dist        float64
+	Vector      float64
+	Charger     *Charger
+	Range       float64
+	InRange     bool
+	NextRange   bool
+}
+
+type Track interface {
+	Add(child Object)
+	Childs() []Object
+	Print(prefix string) string
+	Tick()
+	Render(render chan Object)
+}
+
+type StraightLineTrack struct {
+	// track parameters to describe a circle
+	origin Points
+	end    Points
+
+	Name   string
+	childs []Object
+	points []Points
+}
+
+// Adds an element to the tree branch
+func (self *StraightLineTrack) Add(child Object) {
+	self.childs = append(self.childs, child)
+}
+
+// Returns the child elements
+func (self *StraightLineTrack) Childs() []Object {
+	return self.childs
+}
+
+// Returns the child elements to render
+func (self *StraightLineTrack) Render(render chan Object) {
+	for _, val := range self.Childs() {
+		render <- val
+	}
+}
+
+// Returns a listing of the tree
+func (self *StraightLineTrack) Print(prefix string) string {
+	result := fmt.Sprintf("%s/%s\n", prefix, self.Name)
+	for _, val := range self.Childs() {
+		result += val.Print(fmt.Sprintf("%s/%s", prefix, self.Name))
+	}
+	return result
+}
+
+func (self *StraightLineTrack) String() string {
+	return self.Print("/")
+}
+
+func (self *StraightLineTrack) Tick() {
+	for i := 0; i < len(self.childs); i++ {
+		self.childs[i].Tick()
+	}
+}
+
+type CircularTrack struct {
+	// track parameters to describe a circle
+	origin Points
+	radius float64
+
+	Name   string
+	childs []Object
+	points []Points
+	rads   []float64
+	hints  []float64
+}
+
+// Adds an element to the tree branch
+func (self *CircularTrack) Add(child Object) {
+	self.childs = append(self.childs, child)
+}
+
+// Returns the child elements
+func (self *CircularTrack) Childs() []Object {
+	return self.childs
+}
+
+// Returns the child elements to render
+func (self *CircularTrack) Render(render chan Object) {
+	for _, val := range self.Childs() {
+		render <- val
+	}
+}
+
+// Returns a listing of the tree
+func (self *CircularTrack) Print(prefix string) string {
+	result := fmt.Sprintf("%s/%s\n", prefix, self.Name)
+	for _, val := range self.Childs() {
+		result += val.Print(fmt.Sprintf("%s/%s", prefix, self.Name))
+	}
+	return result
+}
+
+func (self *CircularTrack) String() string {
+	return self.Print("/")
+}
+
+func (self *CircularTrack) RandomizeObjects() {
+	rand.Seed(42)
+
+	// create a new slice for child radians
+	rads := make([]float64, len(self.childs))
+	for idx, _ := range self.childs {
+		theta := rand.Float64() * 2 * math.Pi
+		rads[idx] = theta
+	}
+	self.rads = rads
+	self.ComputeNewCoords()
+}
+
+func (self *CircularTrack) Tick() {
+	fmt.Println("Track Tick")
+	for i := 0; i < len(self.childs); i++ {
+		self.childs[i].Tick()
+	}
+	self.ComputeNewPositions()
+	self.ComputeNewCoords()
+	self.ComputeHints()
+}
+
+func (self *CircularTrack) ComputeNewPositions() {
+	// only the Vehicles
+	vi := make(map[int]*Vehicle, len(self.childs))
+	for i := 0; i < len(self.childs); i++ {
+		switch v := self.childs[i].(type) {
+		case *Vehicle:
+			vi[i] = v
+			break
+		}
+	}
+	for i := range vi {
+		t := 1.0 // time tick
+		v := vi[i].Velocity
+		p := self.rads[i]
+
+		w := v / self.radius
+		theta := w / t
+		// s := theta * self.radius
+
+		self.rads[i] = p + theta
+		if self.rads[i] > 2*math.Pi {
+			self.rads[i] = self.rads[i] - 2*math.Pi
+		} else if self.rads[i] < 0 {
+			self.rads[i] = self.rads[i] + 2*math.Pi
+		}
+	}
+}
+
+func (self *CircularTrack) ComputeNewCoords() {
+	points := make([]Points, len(self.childs))
+	for idx, _ := range self.childs {
+		x, y := self.coords(self.rads[idx])
+		p := Points{
+			X: x,
+			Y: y,
+		}
+		points[idx] = p
+		self.childs[idx].SetPoints(p)
+	}
+	self.points = points
+}
+
+func (self *CircularTrack) Direction(theta, f float64) float64 {
+
+	// Anticlockwise is a positive increment in radians
+	// from 0 at 90degress, upto 2*pi back at the start.
+	// Vehicles transiting anti-clockwise are +ve,
+	// clockwise -ve
+	if math.Signbit(theta) {
+		// car is at 10o'clock, charger at 1o'clock
+		if math.Signbit(f) {
+			// car is going clockwise
+			// keep going
+			fmt.Println("Keep going...")
+			return -1
+		} else {
+			// car is going anticlockwise
+			// gone too far, turn back
+			fmt.Println("Turning back...")
+			return -1
+		}
+	} else {
+		// charger is at 10o'clock, vehicle at 1o'clock
+		if math.Signbit(f) {
+			// gone too far,
+			// turn back
+			fmt.Println("Turning back...")
+			return 1
+		} else {
+			// car is going anticlockwise,
+			// continue
+			fmt.Println("Keep going...")
+			return 1
+		}
+	}
+}
+
+func (self *CircularTrack) Length(theta float64) float64 {
+	return math.Abs(theta) * self.radius
+}
+
+// InRange this transit pass and next transit pass
+func (self *CircularTrack) InRange(l, r float64) bool {
+	return l < r
+}
+
+// Find the nearest Chargers
+// Uses data from Track size/shape, list of Chargers and combines with a Vehicle state.
+// Provides a Hints struture indicating next charging stop and range.
+// XXX move from Track type
+func (self *CircularTrack) ComputeHints() {
+	// TODO look into composition instead of this.
+
+	fmt.Println("ComputeHints")
+	// map of supported types
+	vi := make(map[int]*Vehicle, len(self.childs))
+	ci := make(map[int]*Charger, len(self.childs))
+	for i := 0; i < len(self.childs); i++ {
+		switch v := self.childs[i].(type) {
+		case *Vehicle:
+			vi[i] = v
+			break
+		case *Charger:
+			ci[i] = v
+			break
+		}
+	}
+
+	// for all Vehicles, provide a Hints structure
+	// NOTE we can modify map inplace and effect self.childs by reference.
+	var vr, cr, theta float64
+	var v *Vehicle
+	for vdx := range vi {
+		v = vi[vdx]
+
+		// Find nearest Chargers
+		thetas := make(map[float64]*Charger, len(ci))
+		// prepare sorted list of theta
+		vr = self.rads[vdx]
+		for cdx := range ci {
+			cr = self.rads[cdx]
+
+			// directional, -ve indicating clockwise
+			theta = cr - vr
+
+			// correct for going beyond pi (180deg)
+			if theta > math.Pi {
+				theta = (2*math.Pi - theta) * -1
+			}
+			// track map of radians and Charger
+			thetas[theta] = ci[cdx]
+		}
+		// sort smallest to largest by Abs value
+		thetaKeys := make([]float64, 0, len(ci))
+		for kt := range thetas {
+			thetaKeys = append(thetaKeys, kt)
+		}
+		sort.Slice(thetaKeys, func(i, j int) bool {
+			return math.Abs(thetaKeys[i]) < math.Abs(thetaKeys[j])
+		})
+
+		// Ordered list of hints, per vehicle, sized by chargers
+		hints := make([]*Hint, 0, len(ci))
+		// prepare a list of structures
+		for kt := range thetaKeys {
+			hints = append(hints, &Hint{
+				TrackLength: self.Length(2 * math.Pi),
+				Dist:        self.Length(thetaKeys[kt]),
+				Vector:      self.Direction(thetaKeys[kt], v.Velocity),
+				Range:       v.CalcRange(),
+				InRange:     self.InRange(self.Length(math.Abs(thetaKeys[kt])), v.CalcRange()),
+				NextRange:   self.InRange(self.Length(2*math.Pi+math.Abs(thetaKeys[kt])), v.CalcRange()),
+				Charger:     thetas[thetaKeys[kt]],
+			})
+		}
+		v.SetHints(hints)
+	}
+}
+
+func (self CircularTrack) coords(rad float64) (float64, float64) {
+	x := self.radius*math.Cos(rad) + self.origin.X
+	y := self.radius*math.Sin(rad) + self.origin.Y
+	return x, y
+}
+
+// Examples of objects are Vehicles, Chargers
+type Object interface {
+	Points() Points
+	SetPoints(p Points)
+	Print(prefix string) string
+	Tick()
+}
+
+// A Vehicle
 type Vehicle struct {
-	X, Y, C            float64
-	Type, Rego, Status string
-	Point              float64
-	LinearVelocity     float64
-	Direction          float64
+	points              Points
+	Charge              float64
+	Model, Name, Status string
+	Velocity            float64
+	hints               []*Hint
 }
 
+func (v Vehicle) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Points   Points  `json:"Points"`
+		Charge   float64 `json:"Charge"`
+		Model    string  `json:"Model"`
+		Name     string  `json:"Name"`
+		Status   string  `json:"Status"`
+		Velocity float64 `json:"Velocty"`
+		Range    float64 `json:"Range"`
+		Hints    []*Hint `json:"Hints"`
+	}{
+		Points:   v.Points(),
+		Charge:   v.Charge,
+		Model:    v.Model,
+		Name:     v.Name,
+		Status:   v.Status,
+		Velocity: v.Velocity,
+		Range:    v.CalcRange(),
+		Hints:    v.Hints(),
+	})
+}
+
+func (v *Vehicle) SetPoints(p Points) {
+	v.points = p
+}
+
+func (v *Vehicle) Points() Points {
+	return v.points
+}
+
+func (v *Vehicle) SetHints(p []*Hint) {
+	v.hints = p
+}
+
+func (v *Vehicle) Hints() []*Hint {
+	return v.hints
+}
+
+func (v *Vehicle) Tick() {
+	// tick
+	switch v.Status {
+	case "drive":
+		v.RouteToCharger()
+		v.Drive()
+		break
+	case "parked":
+		// do nothing
+		break
+	case "queued":
+		// do nothing
+		break
+	case "charging":
+		// do nothing
+		break
+	case "flat":
+		// distress call!
+		break
+	}
+}
+
+// State setting
+func (v *Vehicle) Flat() {
+	v.Status = "flat"
+	v.Velocity = 0.0
+	v.Charge = 0.0
+}
+
+func (v *Vehicle) Drive() {
+	v.Status = "drive"
+	if len(v.hints) > 0 && v.hints[0].InRange == false {
+		v.EcoMode()
+	} else if len(v.hints) > 0 && v.hints[0].InRange == true {
+		v.Velocity = v.Velocity * 1.01
+	}
+	v.Consume()
+}
+
+func (v *Vehicle) Charging() {
+	v.Status = "charging"
+	v.Charge = v.Charge + (100 * 0.02)
+	if v.Charge > 100.0 {
+		v.Drive()
+	}
+}
+
+func (v *Vehicle) Queued() {
+	v.Status = "queued"
+	v.Velocity = 0.0
+}
+
+func (v *Vehicle) Parked() {
+	v.Status = "parked"
+	v.Velocity = 0.0
+}
+
+func (v *Vehicle) EcoMode() {
+	if v.Velocity < 0.4 {
+		v.Velocity = 0.4
+	} else if v.Velocity > 1.0 {
+		v.Velocity = v.Velocity * 0.9
+	}
+	fmt.Println("ECO mode")
+}
+
+// Process Hints data to determine whether the stop and recharge, or go on.
+func (v *Vehicle) RouteToCharger() {
+
+	if len(v.hints) > 1 {
+		if v.hints[1].InRange {
+			return
+		}
+	} else if len(v.hints) == 1 {
+		if v.hints[0].NextRange {
+			return
+		}
+	} else if len(v.hints) == 0 {
+		return
+	}
+
+	// Take the Hint
+	// We wont make it to the next charger, so head to nearest
+	if math.Signbit(v.hints[0].Vector) != math.Signbit(v.Velocity) {
+		v.Velocity = v.Velocity * -1
+	}
+	if v.hints[0].Dist < 1.0 {
+		v.hints[0].Charger.Add(v)
+	}
+}
+
+func (v *Vehicle) CalcRange() float64 {
+	if v.Charge < 0.1 {
+		return 0.0
+	}
+	if math.Abs(v.Velocity) < 0.1 {
+		return 0.0
+	}
+	var consumption float64
+	// XXX refactor with Consume()
+	consumption = (100 * 0.01 * math.Abs(v.Velocity) / 1.9)
+	return (v.Charge / consumption)
+}
+
+func (v *Vehicle) Consume() {
+	// XXX refactor with CalcRange()
+	fmt.Printf("Charge is %.2f\n", v.Charge)
+	v.Charge = v.Charge - (100 * 0.01 * math.Abs(v.Velocity) / 1.9)
+	if v.Charge < 0.1 {
+		v.Flat()
+	}
+}
+
+func (v *Vehicle) Print(prefix string) string {
+	j, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("got error")
+	}
+	return fmt.Sprintf("%s <Vehicle: %s>\n", prefix, string(j))
+}
+
+func (v *Vehicle) String() string {
+	return v.Print("/")
+}
+
+// A Charger
 type Charger struct {
-	X, Y               float64
-	Type, Rego, Status string
-	Point              float64
-	Queue              []*Vehicle
+	points              Points
+	Model, Name, Status string
+	queue               []*Vehicle
+}
+
+func (c *Charger) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Points      Points `json:"Points"`
+		Model       string `json:"Model"`
+		Name        string `json:"Name"`
+		Status      string `json:"Status"`
+		QueueLength int    `json:"QueueLength"`
+	}{
+		Points:      c.Points(),
+		Model:       c.Model,
+		Name:        c.Name,
+		Status:      c.Status,
+		QueueLength: len(c.Queue()),
+	})
+}
+
+// Adds an element to the tree branch
+func (c *Charger) Add(child *Vehicle) {
+
+	if len(c.queue) >= 3 {
+		return
+	}
+	fmt.Println("adding to Queue")
+	c.queue = append(c.queue, child)
+	child.Queued()
+}
+
+// Returns the child elements
+func (c *Charger) Queue() []*Vehicle {
+	return c.queue
+}
+
+func (c *Charger) SetPoints(p Points) {
+	c.points = p
+}
+
+func (c *Charger) Points() Points {
+	return c.points
+}
+
+func (c *Charger) ProcessQueue() {
+	if len(c.queue) > 0 {
+		if c.queue[0].Charge < 100 {
+			c.queue[0].Charging()
+		} else {
+			c.queue[0].Drive()
+			_, c.queue = c.queue[0], c.queue[1:]
+		}
+	} else {
+		fmt.Println("Nothing queued")
+	}
+}
+
+func (c *Charger) Tick() {
+	// lifecycle event
+	// process queue
+	c.ProcessQueue()
+	// increase/decrease random amount
+}
+
+func (c Charger) Print(prefix string) string {
+	j, err := json.Marshal(c)
+	if err != nil {
+		log.Printf("got error")
+	}
+	return fmt.Sprintf("%s <Charger: %s>\n", prefix, string(j))
+}
+
+func (c Charger) String() string {
+	return c.Print("/")
+}
+
+func NewVehicle(name, model, status string, charge float64) *Vehicle {
+	return &Vehicle{
+		Name:     name,
+		Model:    model,
+		Status:   status,
+		Velocity: 1*rand.Float64() + 0.5, // very small (<.5) is treated as zero
+		Charge:   charge,
+	}
+}
+
+func NewCharger(name, model, status string) *Charger {
+	return &Charger{
+		Name:   name,
+		Model:  model,
+		Status: status,
+	}
+}
+
+func NewCircularTrack(name string, origin Points, radius float64) *CircularTrack {
+	return &CircularTrack{
+		Name:   name,
+		origin: origin,
+		radius: radius,
+	}
+}
+
+func NewStraightLineTrack(name string, origin Points, end Points) *StraightLineTrack {
+	return &StraightLineTrack{
+		Name:   name,
+		origin: origin,
+		end:    end,
+	}
 }
 
 // limited controls the number of tickets for debugging and testing.
@@ -40,104 +611,21 @@ func limited(done chan int, tick chan int) {
 	done <- 1
 }
 
-// render accepts new items to display (currently to screen) from a number of different channels
-// items are pointers currently. Loop uses select to spin over pipes nonblocking.
-// FIXME make polymorphic
-func render(v_pipeline chan *Vehicle, c_pipeline chan *Charger) {
-	// wait for new things to render on pipeline
+func ticker(tick chan int) {
+	// previous := time.Now()
 	for {
-		var v *Vehicle
-		var c *Charger
+		tick <- 1
+		// current := time.Now()
+		// elapsed := current.Sub(previous)
+		// previous = current
 
-		select {
-		case v = <-v_pipeline:
-			j, err := json.Marshal(v)
-			if err != nil {
-				log.Printf("got error")
-			}
-
-			log.Printf("<Vehicle: %s> (Est. range %.2f units)", string(j), estimateVehicleRange(v))
-		case c = <-c_pipeline:
-			j, err := json.Marshal(c)
-			if err != nil {
-				log.Printf("got error")
-			}
-
-			log.Printf("<Charger: %s>", string(j))
-		default:
-			// prevent busy wait
-			time.Sleep(250 * time.Millisecond)
-		}
+		// log.Printf("step %f", elapsed)
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 
-// updateState state initialisation, state transition and update state
-func updateState(done chan int, tick chan int, v_pipeline chan *Vehicle, c_pipeline chan *Charger) {
-
-	// initialize objects
-	track := CircleTrack{0.0, 0.0, 5.0}
-
-	var vehicles = []Vehicle{
-		{0, 0, 30.0, "tesla x", "AAA", "drive", 2 * math.Pi, 1, -1},          // 0deg
-		{0, 0, 89.0, "tesla x", "BBB", "drive", math.Pi / 3, 0.75, 1},        // 60deg
-		{0, 0, 79.0, "tesla s", "DDD", "drive", 5 / 6 * math.Pi, 0.75, 1},    // 150def
-		{0, 0, 29.0, "tesla s", "EEE", "drive", 4 / 3 * math.Pi, 0.75, 1},    // 135deg
-		{0, 0, 25.0, "leaf x", "XXX", "drive", math.Pi / 2, 0.65, 1},         // 90deg
-		{0, 0, 33.0, "leaf y", "YYY", "drive", 2 / 3 * math.Pi / 2, 1.15, 1}, // 120deg
-	}
-
-	var chargers = []Charger{
-		{0, 0, "ch1", "A", "online", math.Pi, []*Vehicle{}},         // 180deg
-		{0, 0, "ch1", "B", "online", 3 / 2 * math.Pi, []*Vehicle{}}, // 270deg
-		{0, 0, "ch2", "C", "online", 2 * math.Pi, []*Vehicle{}},     // 9deg
-	}
-
-	for {
-		// charger objects
-		var charger *Charger
-		for i := 0; i < len(chargers); i++ {
-			// mutating record, so pass reference
-			charger = &chargers[i]
-			positionCharger(track, charger)
-			// fmt.Printf("updated charger idx %d, rego: %s point %f, wiht x %f y %f\n", idx, r.Rego, r.Point, r.X, r.Y)
-			c_pipeline <- charger
-		}
-
-		// vehicle objects
-		var vehicle *Vehicle
-		// for each item to compute the state for...
-		for i := 0; i < len(vehicles); i++ {
-			vehicle = &vehicles[i]
-
-			switch vehicle.Status {
-			case "drive":
-				// vehicle.LinearVelocity = 1.0 //  rand.Float64() + rand.Float64()
-				consumeCharge(vehicle)
-				routeToCharger(track, vehicle, chargers)
-				positionVehicle(track, vehicle)
-				// fmt.Printf("updated vehicle rego: %s point %f, wiht x %f y %f\n", vehicle.Rego, vehicle.Point, vehicle.X, vehicle.Y)
-				break
-			case "parked":
-				// do nothing
-				break
-			case "queued":
-				processQueue(chargers)
-				break
-			case "charging":
-				processQueue(chargers)
-				break
-			}
-			v_pipeline <- vehicle
-		}
-		//  wait for synchronisation
-		<-tick
-	}
-}
-
-func inputMapper(done chan int) {
-
+func handleInput(done chan int) {
 	reader := bufio.NewReader(os.Stdin)
-
 	for {
 		fmt.Print("-> ")
 		char, _, err := reader.ReadRune()
@@ -164,306 +652,56 @@ func inputMapper(done chan int) {
 	}
 }
 
-func ticker(tick chan int) {
-	// previous := time.Now()
+func handleRuntime(t1 Track, tick chan int, render chan Object) {
 	for {
-		tick <- 1
-		// current := time.Now()
-		// elapsed := current.Sub(previous)
-		// previous = current
+		fmt.Println("runtime...")
+		t1.Tick()
 
-		// log.Printf("step %f", elapsed)
-		time.Sleep(250 * time.Millisecond)
+		t1.Render(render)
+		<-tick
 	}
 }
 
-func estimateVehicleRange(v *Vehicle) float64 {
-
-	var consumption float64
-	// XXX refactor with consumeCharge
-	// XXX make a exponential scale
-	consumption = (100 * 0.01 * v.LinearVelocity / 1.9)
-
-	return v.C / consumption
-}
-
-func consumeCharge(v *Vehicle) {
-	charge := v.C
-
-	v.C = charge - (100 * 0.01 * v.LinearVelocity / 1.9)
-
-	if v.C < 0.1 {
-		v.LinearVelocity = 0
-		v.C = 0
-		v.Status = "flat"
+func handleRender(tick chan int, render chan Object) {
+	// previous := time.Now()
+	var v Object
+	for {
+		v = <-render
+		fmt.Println(v)
 	}
-}
-
-func reCharge(v *Vehicle) {
-	charge := v.C
-
-	v.Status = "charging"
-	v.C = charge + (100 * 0.1)
-}
-
-// Caculate the nearest charger (linear distance)
-func nearestCharger(v *Vehicle, chargers []Charger) (*Charger, float64) {
-
-	var c *Charger
-	var linearDist float64
-	// compute distance to charger (linear distance)
-	chargerPoints := make(map[float64]*Charger) // mapping charger rego to points (float64)
-	for i := 0; i < len(chargers); i++ {
-		c = &chargers[i]
-		// find the shortest distance
-		dx := math.Pow((v.X - c.X), 2)
-		dy := math.Pow((v.Y - c.Y), 2)
-		linearDist = math.Sqrt(dx + dy)
-		chargerPoints[linearDist] = c
-		// fmt.Printf("Dist to charger %s (%.2f,%.2f) from vehicle %s (%.2f,%.2f) is %.2f units\n", c.Rego, c.X, c.Y, v.Rego, v.X, v.Y, dist)
-	}
-	// order
-	var points []float64
-	for point := range chargerPoints {
-		points = append(points, point)
-	}
-	sort.Float64s(points)
-
-	c = chargerPoints[points[0]]
-	linearDist = points[0]
-	log.Printf("Nearest: to vehicle %s is %s %.2f units\n", v.Rego, c.Rego, linearDist)
-	return c, linearDist
-}
-
-// Calculate the next nearest by absolute radians
-// Returns the two nearest
-func nextNearestChargers(t CircleTrack, v *Vehicle, chargers []Charger) (*Charger, float64, *Charger, float64) {
-
-	var c1, c2 *Charger
-	var r1, r2 float64
-
-	chargerRads := make(map[float64]*Charger) // mapping charger rego to points (float64)
-	for i := 0; i < len(chargers); i++ {
-		c1 = &chargers[i]
-
-		// directional, with negative indicating a clockwise direction
-		r := c1.Point - v.Point
-
-		// correct for going beyond 180deg
-		if r > math.Pi {
-			r = (2*math.Pi - r) * -1
-		}
-		chargerRads[r] = c1
-
-	}
-	// order
-	var keys []float64
-	for r := range chargerRads {
-		keys = append(keys, r)
-	}
-
-	// Sort smallest to largest
-	sort.Slice(keys, func(i, j int) bool {
-		return math.Abs(keys[i]) < math.Abs(keys[j])
-	})
-
-	if len(keys) == 1 {
-		c1 = chargerRads[keys[0]]
-		r1 = keys[0]
-
-		log.Printf("Only Nearest: to vehicle %s is %s %.2f rads (%.2f units)\n", v.Rego, c1.Rego, r1, r1*t.Radius)
-		return c1, r1, nil, 0
-	}
-
-	c1 = chargerRads[keys[0]]
-	r1 = keys[0]
-	c2 = chargerRads[keys[1]]
-	r2 = keys[1]
-
-	log.Printf("Nearest: to vehicle %s is %s %.2f rads (%.2f units), or %s %.2f rads (%.2f units)\n", v.Rego, c1.Rego, r1, r1*t.Radius, c2.Rego, r2, r2*t.Radius)
-	return c1, r1, c2, r2
-
-}
-
-func processQueue(chargers []Charger) {
-	var c *Charger
-	var v *Vehicle
-	for i := 0; i < len(chargers); i++ {
-		c = &chargers[i]
-		if len(c.Queue) > 0 {
-			v = c.Queue[0]
-			reCharge(v)
-			if v.C >= 99.0 {
-				log.Printf("Charged! vehicle %s at %s", v.Rego, c.Rego)
-				v.Status = "drive"
-				v.LinearVelocity = 1.0
-				_, c.Queue = c.Queue[0], c.Queue[1:]
-			}
-		}
-	}
-}
-
-// queue at this charger, taking slot to wait in line.
-func queueAtCharger(c *Charger, v *Vehicle) {
-
-	// check queue length
-	// if len(c.Queue) == cap(c.Queue) {
-	// error - queue full!
-	//	return
-	//}
-	log.Printf("Queued! vehicle %s at %s", v.Rego, c.Rego)
-	c.Queue = append(c.Queue, v)
-	v.Status = "queued"
-	v.LinearVelocity = 0.0
-}
-
-// compute whether to continue onto the next recharger, or if we wont make it,
-// which direction to travel (-1 clockwise, +1 anticlockwise) in order to reach
-// the nearest.
-func routeToCharger(t CircleTrack, v *Vehicle, chargers []Charger) {
-
-	var c1, c2 *Charger
-	var r1, r2 float64
-	var s1, s2 float64
-	var ver float64
-
-	if v.C > 50 {
-		return
-	}
-
-	// at 50% charge, consider recharging
-	c1, r1, c2, r2 = nextNearestChargers(t, v, chargers)
-
-	ver = estimateVehicleRange(v)
-
-	if len(chargers) > 1 {
-		s2 = math.Abs(r2) * t.Radius
-		if ver > s2 {
-			// safe to continue to next charger
-			log.Printf("Safe for vehicle %s to continue to %s (%.2f units, est. range %.2f)!", v.Rego, c2.Rego, s2, ver)
-			return
-		}
-	} else {
-		// all the way around
-		s1 = math.Abs(r1)*t.Radius + (2 * math.Pi * t.Radius)
-		if ver > s1 {
-			// safe to continue to next charger
-			log.Printf("Safe for vehicle %s to loop %.2f units back to %s (%.2f units, est. range %.2f)", v.Rego, s1, c1.Rego, s1, ver)
-			return
-		}
-
-	}
-
-	// wont make it to the next charger, so head to nearest
-	if r1 > 0 {
-		// positive difference, means the charger is further around on the positive direction (anticlockwise)
-		if v.Direction > 0 {
-			// keep going
-			return
-		} else {
-			// we're heading away (clockwise)
-			v.Direction = v.Direction * -1
-		}
-	} else {
-		// negative difference means the chrager is further clockwiseit's further around anti-clockwise
-		if v.Direction > 0 {
-			v.Direction = v.Direction * -1
-		} else {
-			return
-		}
-	}
-	// economy mode
-	s1 = math.Abs(r1) * t.Radius
-	if ver > s1 {
-		// reduce speed
-		log.Printf("ECO MODE! vehicle %s heading to %s", v.Rego, c1.Rego)
-		v.LinearVelocity = v.LinearVelocity * .9
-	}
-
-	if s1 < 1.0 {
-		log.Printf("Arrived! vehicle %s at %s", v.Rego, c1.Rego)
-		v.LinearVelocity = 0.0
-		queueAtCharger(c1, v)
-	}
-}
-
-func positionVehicle(track CircleTrack, vehicle *Vehicle) {
-	// Compute new x,y location for vehicle.
-
-	// Based on speed and direction, given a starting point in rads.
-	t := 1.0 // time tick
-	v := vehicle.LinearVelocity
-	direction := vehicle.Direction
-	start_point := vehicle.Point
-
-	// Angular Velocity Formulas
-	// w = theta / t, where w = angular velocity, theta = position angle, and t = time.
-	// w = s / rt, where s length of arc, r radius, t time.
-	// w = v / t, where v is linear velocity, r radius
-	w := v / track.Radius
-	theta := w / t
-
-	// Arc length forumula
-	// Circumference of a circle
-	// c = 2pi*r
-	// theta = s / r, s length of subtended arc, r radius
-	// s = theta * r
-	s := theta * track.Radius
-
-	// adding/subtracking radians from a start point.
-	new_point := start_point + (w * direction)
-	if new_point > 2*math.Pi { // wrap around
-		new_point = new_point - 2*math.Pi
-	}
-	if new_point < 0 { // wrap backaround
-		new_point = new_point + 2*math.Pi
-	}
-
-	x, y := coord(track, new_point)
-
-	vehicle.X = x
-	vehicle.Y = y
-	vehicle.Point = new_point
-	fmt.Printf("Vehicle %s position: (%.2f,%.2f) %.2f rads, w %.2f, s %.2f, v %.2f, theta %.2f\n", vehicle.Rego, vehicle.X, vehicle.Y, vehicle.Point, w, s, v, theta)
-
-}
-
-func positionCharger(track CircleTrack, charger *Charger) {
-	x, y := coord(track, charger.Point)
-	charger.X = x
-	charger.Y = y
-}
-
-func coord(track CircleTrack, rad float64) (float64, float64) {
-	// parametric form
-	// https://en.wikipedia.org/wiki/Circle#Equations
-	x := track.Radius*math.Cos(rad) + track.j
-	y := track.Radius*math.Sin(rad) + track.k
-	return x, y
 }
 
 func main() {
 
-	// simple signals
-	done := make(chan int)
+	v1 := NewVehicle("AAA", "Model X", "drive", 15.0)
+	v2 := NewVehicle("BBB", "Model X", "drive", 35.0)
+	v3 := NewVehicle("CCC", "Model S", "drive", 25.0)
+	v4 := NewVehicle("ZZZ", "Leaf", "drive", 70.0)
+
+	c1 := NewCharger("A", "t1", "online")
+	c2 := NewCharger("B", "t1", "online")
+	c3 := NewCharger("C", "t2", "online")
+
+	t1 := NewCircularTrack("T", Points{0.0, 0.0}, 20.0)
+	t1.Add(v1)
+	t1.Add(v2)
+	t1.Add(v3)
+	t1.Add(v4)
+	t1.Add(c1)
+	t1.Add(c2)
+	t1.Add(c3)
+
+	t1.RandomizeObjects()
+
 	tick := make(chan int)
+	done := make(chan int)
 
-	// game objects
-	v_pipeline := make(chan *Vehicle)
-	c_pipeline := make(chan *Charger)
+	render := make(chan Object)
 
-	// debug to limit gameplay
-	go limited(done, tick)
-	// simple heartbeat
 	go ticker(tick)
-
-	// handle input
-	go inputMapper(done)
-	// perform state updates
-	go updateState(done, tick, v_pipeline, c_pipeline)
-
-	// render when data on pipeline
-	go render(v_pipeline, c_pipeline)
-
+	go limited(done, tick)
+	go handleInput(done)
+	go handleRuntime(t1, tick, render)
+	go handleRender(tick, render)
 	<-done
 }
