@@ -9,20 +9,6 @@ import (
 	"time"
 )
 
-type Points struct {
-	X, Y float64
-}
-
-type Hint struct {
-	TrackLength float64
-	Dist        float64
-	Vector      float64
-	Charger     *Charger
-	Range       float64
-	InRange     bool
-	NextRange   bool
-}
-
 // limited controls the number of tickets for debugging and testing.
 func limited(done chan int, tick chan int) {
 	for i := 0; i < 720; i++ {

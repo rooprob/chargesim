@@ -10,6 +10,20 @@ import (
 	"math/rand"
 )
 
+type Points struct {
+	X, Y float64
+}
+
+type Hint struct {
+	TrackLength float64
+	Dist        float64
+	Vector      float64
+	Charger     *Charger
+	Range       float64
+	InRange     bool
+	NextRange   bool
+}
+
 // Examples of objects are Vehicles, Chargers
 type Object interface {
 	Points() Points
