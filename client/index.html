@@ -2,7 +2,7 @@
 <html>
 
   <head>
-    <title>ChargeSim</title>
+    <title></title>
     <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha256-3edrmyuQ0w65f8gfBsqowzjJe2iM6n0nKciPUp8y+7E=" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js" integrity="sha256-+JMHsXRyeTsws/tzbIh5YHQxRdKCuNjmvNcTFtY6DLc=" crossorigin="anonymous"></script>
 		<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -100,7 +100,7 @@
   <body>
     <div class="container">
       <header>
-        <h1>Charge Simulator</h1>
+        <h1></h1>
       </header>
       <nav>
         <ul>
@@ -135,40 +135,56 @@
   </body>
 
   <script>
-    MESSAGE_CONNECTED = 1;
-    MESSAGE_USER_JOINED = 2;
-    MESSAGE_USER_LEFT = 3;
-    MESSAGE_TRACK = 4;
-    MESSAGE_VEHICLE = 5;
-    MESSAGE_CHARGER = 6;
-    MESSAGE_CLEAR = 7;
 
-    window.onload = function () {
+    $(document).ready(function() {
+
+      'use strict';
+
+      const MESSAGE_CONNECTED = 1;
+      const MESSAGE_USER_JOINED = 2;
+      const MESSAGE_USER_LEFT = 3;
+      const MESSAGE_TRACK = 4;
+      const MESSAGE_VEHICLE = 5;
+      const MESSAGE_CHARGER = 6;
+      const MESSAGE_CLEAR = 7;
+
       var objects = [];
-      var socket = new WebSocket("ws://localhost:3000/ws");
 
-      var statusbar = $('#statusbar');
+      // websocket connection setup
+      var socket = null;
 
-      // trigger screen refresh
-      setInterval(function(){ update(); }, 251);
+      function newConnection(){
+        socket = new WebSocket("ws://localhost:3000/ws");
+        // handle statusbar
+        var statusbar = $('#statusbar');
+        socket.onopen = function () {
+          statusbar.html("Status: Connected");;
+        };
 
-      socket.onopen = function () {
-        statusbar.html("Status: Connected");;
-      };
+        socket.onclose = function () {
+          statusbar.html("Status: Not connected");;
+        };
 
-      socket.onclose = function () {
-        statusbar.html("Status: Not connected");;
-      };
+        // message handling and objects[] store
+        socket.onmessage = function (event) {
+          var messages = event.data.split('\n');
+          for (var i = 0; i < messages.length; i++) {
+            var message = JSON.parse(messages[i]);
+            handleMessage(message);
+          }
+        };
+      }
 
-      socket.onmessage = function (event) {
-        var messages = event.data.split('\n');
-        for (var i = 0; i < messages.length; i++) {
-          var message = JSON.parse(messages[i]);
-          onMessage(message);
+      function check(){
+        if(!socket || socket.readyState == WebSocket.CLOSED) {
+          newConnection();
         }
-      };
+      }
 
-      function onMessage(message) {
+      newConnection();
+      setInterval(check, 5000);
+
+      function handleMessage(message) {
         switch (message.kind) {
           case MESSAGE_CONNECTED:
             break;
@@ -191,9 +207,14 @@
             objects = [];
             break;
         }
+        updateScreen();
       }
 
-      function update() {
+      function updateScreen() {
+        if (objects.length == 0) {
+          console.log("no objects");
+          return;
+        }
         updateChargerPanel();
         updateVehiclePanel();
         updateCanvas();
@@ -284,14 +305,7 @@
         var html = templateScript({cols: cols, data: data});
         $('#vehicle-panel').html(html);
       }
-
-      /*
-      document.getElementById('clearButton').onclick = function () {
-        objects = [];
-        socket.send(JSON.stringify({ kind: MESSAGE_CLEAR }));
-        update();
-      };*/
-    };
+		});
   </script>
 
   <script id="table-panel-tmpl" type="text/x-handlebars-template">

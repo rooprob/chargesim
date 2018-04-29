@@ -128,7 +128,7 @@ func (v *Vehicle) Drive() {
 
 func (v *Vehicle) Charging() {
 	v.Status = "charging"
-	v.Charge = v.Charge + (100 * 0.02)
+	v.Charge = v.Charge + (100 * 0.01)
 	if v.Charge > 100.0 {
 		v.Drive()
 	}

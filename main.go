@@ -40,7 +40,7 @@ func ticker(tick chan int) {
 		// previous = current
 
 		// log.Printf("step %f", elapsed)
-		time.Sleep(199 * time.Millisecond)
+		time.Sleep(301 * time.Millisecond)
 	}
 }
 
