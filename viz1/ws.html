@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>chargesim</title>
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha256-3edrmyuQ0w65f8gfBsqowzjJe2iM6n0nKciPUp8y+7E=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js" integrity="sha256-+JMHsXRyeTsws/tzbIh5YHQxRdKCuNjmvNcTFtY6DLc=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.13.0/d3.min.js" integrity="sha256-hYXbQJK4qdJiAeDVjjQ9G0D6A0xLnDQ4eJI9dkm7Fpk=" crossorigin="anonymous"></script>
+  </head>
+
+  <body>
+		<!-- websockets.html -->
+		<pre id="output"></pre>
+		<pre id="graph"></pre>
+
+		<div id="entry" class="panel-body"> </div>
+
+    <button id="toggleState" type="button" value="Toggle">Toggle</button>
+
+		<script id="tpl" type="text/x-handlebars-template">
+			<div>
+				ID: {{id}} <br/>
+				Name: {{name}} <br/>
+        Bar: {{bar}} <br/>
+			</div>
+		</script>
+
+		<script>
+			var output = document.getElementById("output");
+			var socket = new WebSocket("ws://localhost:3000/ws");
+
+      var template = $('#tpl').html();
+      var templateScript = Handlebars.compile(template);
+
+			socket.onopen = function () {
+				output.innerHTML += "Status: Connected\n";
+			};
+
+      /* socket.addEventListener('message', function(event) {
+        var d = JSON.parse(event.data)
+        var context = {
+          'id': d.Id,
+          'name': d.Name,
+          'bar': d.Bar
+        };
+        var html = templateScript(context);
+        $("#entry").html(html);
+      });*/
+
+      var tempData = [];
+      var svg = d3.select("#graph").append("svg")
+        .attr("height", 200)
+        .attr("width", 500)
+
+      // Listen for messages
+      socket.addEventListener('message', function(event) {
+				var d = JSON.parse(event.data)
+        if (d.Temperature != 'N/A') {
+          tempData.push(d.Id);
+          if (tempData.length > 35)
+            tempdata = tempData.splice(0, 1);
+          render();
+        }
+      });
+
+      function render() {
+        //init
+        var rects = svg.selectAll("rect").data(tempData);
+        //enter
+        rects.enter().append("rect")
+          .attr("width", 5)
+          .attr("x", function(d, i) {
+            return i * 6;
+          })
+          .attr("y", function(d) {
+            return 100 - d;
+          })
+          .attr("height", function(d) {
+            return d;
+          })
+        // update
+        rects.transition().
+          duration(0)
+          .attr("x", function(d, i) {
+            return i * 6;
+          })
+          .attr("y", function(d) {
+            return 100 - d;
+          })
+          .attr("height", function(d) {
+            return d;
+          })
+        // exit
+        rects.exit().remove();
+      }
+
+			document.querySelector('#toggleState').addEventListener('click', function() {
+				socket.send("stop");
+			})
+
+		</script>
+  </body>
+</html>

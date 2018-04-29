@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <title>ChargeSim</title>
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha256-3edrmyuQ0w65f8gfBsqowzjJe2iM6n0nKciPUp8y+7E=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js" integrity="sha256-+JMHsXRyeTsws/tzbIh5YHQxRdKCuNjmvNcTFtY6DLc=" crossorigin="anonymous"></script>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <style>
+
+    body {
+      font-family: Georgia, "Bitstream Charter", Times, "Times New Roman", serif;
+    }
+
+    div.container {
+      width: 100%;
+      border: 1px solid gray;
+      box-sizing: border-box;
+    }
+
+    header, footer {
+      padding: 1em;
+      color: white;
+      background-color: black;
+      clear: left;
+      text-align: center;
+    }
+
+    nav {
+      float: left;
+      max-width: 160px;
+      margin: 0;
+      padding: 1em;
+    }
+
+    nav ul {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    nav ul a {
+      text-decoration: none;
+    }
+
+    article {
+      margin-left: 170px;
+      border-left: 1px solid gray;
+      padding: 1em;
+      overflow: hidden;
+    }
+
+    table {
+      border-collapse: collapse;
+    }
+
+    td, th {
+      border: 1px solid #999;
+      padding: 0.5rem;
+      text-align: left;
+    }
+
+    tbody tr:nth-child(odd) {
+      background: #eee;
+    }
+
+    /* Create two equal columns that floats next to each other */
+    .column {
+      float: left;
+      width: 280px;   /* 25%; */
+      padding: 10px;
+    }
+
+    /* Clear floats after the columns */
+    .row:after {
+      content: "";
+      display: table;
+      clear: both;
+    }
+
+    /* Responsive layout - makes the two columns stack on top of each other instead of next to each other */
+    @media screen and (max-width: 720px) {
+      .column {
+        width: 100%;
+      }
+    }
+
+    #canvas {
+      width: 300px;
+      height: auto;
+    }
+    #charger-panel {
+      width: 280px;
+    }
+    #vehicle-panel {
+      width: 280px;
+    }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <header>
+        <h1>Charge Simulator</h1>
+      </header>
+      <nav>
+        <ul>
+          <li><a href="#">Clear</a></li>
+          <li><a href="#">Faster</a></li>
+          <li><a href="#">Slower</a></li>
+        </ul>
+      </nav>
+
+      <article>
+        <div class="row">
+          <div class="column">
+            <h2>Simulation</h2>
+            <canvas id="canvas" width="360" height="270"> </canvas>
+          </div>
+          <div class="column">
+            <h2>Chargers</h2>
+            <div id="charger-panel"/></div>
+          </div>
+          <div class="column">
+            <h2>Customers</h2>
+            <div id="vehicle-panel"/></div>
+          </div>
+        </div>
+      </article>
+
+      <footer>
+        <div id="statusbar"></div>
+      </footer>
+
+    </div>
+  </body>
+
+  <script>
+    MESSAGE_CONNECTED = 1;
+    MESSAGE_USER_JOINED = 2;
+    MESSAGE_USER_LEFT = 3;
+    MESSAGE_TRACK = 4;
+    MESSAGE_VEHICLE = 5;
+    MESSAGE_CHARGER = 6;
+    MESSAGE_CLEAR = 7;
+
+    window.onload = function () {
+      var objects = [];
+      var socket = new WebSocket("ws://localhost:3000/ws");
+
+      var statusbar = $('#statusbar');
+
+      // trigger screen refresh
+      setInterval(function(){ update(); }, 251);
+
+      socket.onopen = function () {
+        statusbar.html("Status: Connected");;
+      };
+
+      socket.onclose = function () {
+        statusbar.html("Status: Not connected");;
+      };
+
+      socket.onmessage = function (event) {
+        var messages = event.data.split('\n');
+        for (var i = 0; i < messages.length; i++) {
+          var message = JSON.parse(messages[i]);
+          onMessage(message);
+        }
+      };
+
+      function onMessage(message) {
+        switch (message.kind) {
+          case MESSAGE_CONNECTED:
+            break;
+          case MESSAGE_USER_JOINED:
+            break;
+          case MESSAGE_USER_LEFT:
+            break;
+          case MESSAGE_TRACK:
+            // clear previously stored objects
+            objects = [];
+            objects.push(message);
+            break;
+          case MESSAGE_VEHICLE:
+            objects.push(message);
+            break;
+          case MESSAGE_CHARGER:
+            objects.push(message);
+            break;
+          case MESSAGE_CLEAR:
+            objects = [];
+            break;
+        }
+      }
+
+      function update() {
+        updateChargerPanel();
+        updateVehiclePanel();
+        updateCanvas();
+      }
+
+      function updateCanvas() {
+        // guard
+        if (objects.length == 0) {
+          return ;
+        }
+        // update canvas
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext("2d");
+
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+
+        for (var i = 0; i < objects.length; i++) {
+          var message = objects[i];
+          switch (message.kind) {
+            case MESSAGE_TRACK:
+              ctx.beginPath();
+              ctx.strokeStyle = "#000";
+              ctx.lineWidth=1;
+              ctx.arc(message.origin.X,message.origin.Y,message.radius,0,2*Math.PI);
+              ctx.stroke();
+              break;
+            case MESSAGE_VEHICLE:
+              ctx.beginPath();
+              ctx.fillStyle = message.color;
+              ctx.arc(message.points.X,message.points.Y,5,0,2*Math.PI);
+              ctx.fill();
+              break;
+            case MESSAGE_CHARGER:
+              ctx.beginPath();
+              ctx.fillStyle = message.color;
+              ctx.arc(message.points.X,message.points.Y,5,0,2*Math.PI);
+              ctx.fill();
+              break;
+          }
+        }
+      }
+
+      function updateChargerPanel() {
+        // guard
+        if (objects.length == 0) {
+          return ;
+        }
+        // template HTML Table
+        var template = $('#table-panel-tmpl').html();
+        var templateScript = Handlebars.compile(template);
+
+        // datastructures for template
+        var cols = ['name','status','queueLength'];
+        // filter
+        var data = $.grep(objects, function(v) {
+          return v.kind === MESSAGE_CHARGER;
+        });
+
+        var html = templateScript({cols: cols, data: data});
+        $('#charger-panel').html(html);
+      }
+
+      function updateVehiclePanel() {
+        // guard
+        if (objects.length == 0) {
+          return ;
+        }
+        // template HTML Table
+        var template = $('#table-panel-tmpl').html();
+        var templateScript = Handlebars.compile(template);
+
+        // datastructures for template
+        var cols = ['name','model','status','charge','velocity','range'];
+        // filter
+        var data = $.grep(objects, function(v) {
+          return v.kind === MESSAGE_VEHICLE;
+        });
+
+        data = $.map(data, function(v) {
+          v.charge = parseFloat(v.charge).toFixed(2);
+          v.velocity = parseFloat(v.velocity).toFixed(2);
+          v.range = parseFloat(v.velocity).toFixed(2);
+          return v;
+        });
+
+        var html = templateScript({cols: cols, data: data});
+        $('#vehicle-panel').html(html);
+      }
+
+      /*
+      document.getElementById('clearButton').onclick = function () {
+        objects = [];
+        socket.send(JSON.stringify({ kind: MESSAGE_CLEAR }));
+        update();
+      };*/
+    };
+  </script>
+
+  <script id="table-panel-tmpl" type="text/x-handlebars-template">
+		<thead>
+			<tr>
+				{{#each cols}}
+					<th>{{this}}</th>
+				{{/each}}
+			</tr>
+		</thead>
+		<tbody>
+			{{#each data}}
+			<tr>
+				{{#each ../cols}}
+					<td>{{lookup .. this}}</td>
+				{{/each}}
+			</tr>
+			{{/each}}
+		</tbody>
+  </script>
+
+</html>

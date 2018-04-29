@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/rooprob/chargesim/message"
+	uuid "github.com/satori/go.uuid"
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"sort"
 	"time"
@@ -36,10 +39,12 @@ type Track interface {
 
 type StraightLineTrack struct {
 	// track parameters to describe a circle
+	Id     string
+	Color  string
+	Name   string
+	Kind   int
 	origin Points
 	end    Points
-
-	Name   string
 	childs []Object
 	points []Points
 }
@@ -82,14 +87,34 @@ func (self *StraightLineTrack) Tick() {
 
 type CircularTrack struct {
 	// track parameters to describe a circle
+	Id     string
+	Color  string
+	Name   string
+	Kind   int
 	origin Points
 	radius float64
-
-	Name   string
 	childs []Object
 	points []Points
 	rads   []float64
 	hints  []float64
+}
+
+func (v *CircularTrack) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Id     string  `json:"id"`
+		Color  string  `json:"color"`
+		Kind   int     `json:"kind"`
+		Origin Points  `json:"origin"`
+		Radius float64 `json:"radius"`
+		Name   string  `json:"name"`
+	}{
+		Id:     v.Id,
+		Color:  v.Color,
+		Kind:   v.Kind,
+		Origin: v.origin,
+		Radius: v.radius,
+		Name:   v.Name,
+	})
 }
 
 // Adds an element to the tree branch
@@ -104,6 +129,7 @@ func (self *CircularTrack) Childs() []Object {
 
 // Returns the child elements to render
 func (self *CircularTrack) Render(render chan Object) {
+	render <- self
 	for _, val := range self.Childs() {
 		render <- val
 	}
@@ -304,10 +330,18 @@ func (self *CircularTrack) ComputeHints() {
 	}
 }
 
-func (self CircularTrack) coords(rad float64) (float64, float64) {
+func (self *CircularTrack) coords(rad float64) (float64, float64) {
 	x := self.radius*math.Cos(rad) + self.origin.X
 	y := self.radius*math.Sin(rad) + self.origin.Y
 	return x, y
+}
+
+func (self *CircularTrack) Points() Points {
+	return self.origin
+}
+
+func (self *CircularTrack) SetPoints(p Points) {
+	self.origin = p
 }
 
 // Examples of objects are Vehicles, Chargers
@@ -320,24 +354,33 @@ type Object interface {
 
 // A Vehicle
 type Vehicle struct {
-	points              Points
+	Id                  string
+	Kind                int
+	Color               string
 	Charge              float64
 	Model, Name, Status string
 	Velocity            float64
+	points              Points
 	hints               []*Hint
 }
 
 func (v Vehicle) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Points   Points  `json:"Points"`
-		Charge   float64 `json:"Charge"`
-		Model    string  `json:"Model"`
-		Name     string  `json:"Name"`
-		Status   string  `json:"Status"`
-		Velocity float64 `json:"Velocty"`
-		Range    float64 `json:"Range"`
-		Hints    []*Hint `json:"Hints"`
+		Id       string  `json:"id"`
+		Kind     int     `json:"kind"`
+		Color    string  `json:"color"`
+		Points   Points  `json:"points"`
+		Charge   float64 `json:"charge"`
+		Model    string  `json:"model"`
+		Name     string  `json:"name"`
+		Status   string  `json:"status"`
+		Velocity float64 `json:"velocity"`
+		Range    float64 `json:"range"`
+		Hints    []*Hint `json:"hints"`
 	}{
+		Id:       v.Id,
+		Kind:     v.Kind,
+		Color:    v.Color,
 		Points:   v.Points(),
 		Charge:   v.Charge,
 		Model:    v.Model,
@@ -465,14 +508,14 @@ func (v *Vehicle) CalcRange() float64 {
 	}
 	var consumption float64
 	// XXX refactor with Consume()
-	consumption = (100 * 0.01 * math.Abs(v.Velocity) / 1.9)
+	consumption = math.Abs(v.Velocity) / 5
 	return (v.Charge / consumption)
 }
 
 func (v *Vehicle) Consume() {
 	// XXX refactor with CalcRange()
 	fmt.Printf("Charge is %.2f\n", v.Charge)
-	v.Charge = v.Charge - (100 * 0.01 * math.Abs(v.Velocity) / 1.9)
+	v.Charge = v.Charge - (math.Abs(v.Velocity) / 5)
 	if v.Charge < 0.1 {
 		v.Flat()
 	}
@@ -492,6 +535,9 @@ func (v *Vehicle) String() string {
 
 // A Charger
 type Charger struct {
+	Id                  string
+	Kind                int
+	Color               string
 	points              Points
 	Model, Name, Status string
 	queue               []*Vehicle
@@ -499,13 +545,19 @@ type Charger struct {
 
 func (c *Charger) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Points      Points `json:"Points"`
-		Model       string `json:"Model"`
-		Name        string `json:"Name"`
-		Status      string `json:"Status"`
-		QueueLength int    `json:"QueueLength"`
+		Id          string `json:"id"`
+		Kind        int    `json:"kind"`
+		Color       string `json:"color"`
+		Points      Points `json:"points"`
+		Model       string `json:"model"`
+		Name        string `json:"name"`
+		Status      string `json:"status"`
+		QueueLength int    `json:"queueLength"`
 	}{
+		Id:          c.Id,
+		Kind:        c.Kind,
 		Points:      c.Points(),
+		Color:       c.Color,
 		Model:       c.Model,
 		Name:        c.Name,
 		Status:      c.Status,
@@ -557,7 +609,7 @@ func (c *Charger) Tick() {
 	// increase/decrease random amount
 }
 
-func (c Charger) Print(prefix string) string {
+func (c *Charger) Print(prefix string) string {
 	j, err := json.Marshal(c)
 	if err != nil {
 		log.Printf("got error")
@@ -565,12 +617,15 @@ func (c Charger) Print(prefix string) string {
 	return fmt.Sprintf("%s <Charger: %s>\n", prefix, string(j))
 }
 
-func (c Charger) String() string {
+func (c *Charger) String() string {
 	return c.Print("/")
 }
 
 func NewVehicle(name, model, status string, charge float64) *Vehicle {
 	return &Vehicle{
+		Id:       uuid.Must(uuid.NewV4()).String(),
+		Color:    generateColor(),
+		Kind:     message.KindVehicle,
 		Name:     name,
 		Model:    model,
 		Status:   status,
@@ -581,6 +636,9 @@ func NewVehicle(name, model, status string, charge float64) *Vehicle {
 
 func NewCharger(name, model, status string) *Charger {
 	return &Charger{
+		Id:     uuid.Must(uuid.NewV4()).String(),
+		Color:  "#00ff00",
+		Kind:   message.KindCharger,
 		Name:   name,
 		Model:  model,
 		Status: status,
@@ -589,6 +647,9 @@ func NewCharger(name, model, status string) *Charger {
 
 func NewCircularTrack(name string, origin Points, radius float64) *CircularTrack {
 	return &CircularTrack{
+		Id:     uuid.Must(uuid.NewV4()).String(),
+		Color:  generateColor(),
+		Kind:   message.KindTrack,
 		Name:   name,
 		origin: origin,
 		radius: radius,
@@ -597,6 +658,9 @@ func NewCircularTrack(name string, origin Points, radius float64) *CircularTrack
 
 func NewStraightLineTrack(name string, origin Points, end Points) *StraightLineTrack {
 	return &StraightLineTrack{
+		Id:     uuid.Must(uuid.NewV4()).String(),
+		Color:  generateColor(),
+		Kind:   message.KindTrack,
 		Name:   name,
 		origin: origin,
 		end:    end,
@@ -605,7 +669,7 @@ func NewStraightLineTrack(name string, origin Points, end Points) *StraightLineT
 
 // limited controls the number of tickets for debugging and testing.
 func limited(done chan int, tick chan int) {
-	for i := 0; i < 360; i++ {
+	for i := 0; i < 720; i++ {
 		<-tick
 	}
 	done <- 1
@@ -620,7 +684,7 @@ func ticker(tick chan int) {
 		// previous = current
 
 		// log.Printf("step %f", elapsed)
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(199 * time.Millisecond)
 	}
 }
 
@@ -662,12 +726,24 @@ func handleRuntime(t1 Track, tick chan int, render chan Object) {
 	}
 }
 
-func handleRender(tick chan int, render chan Object) {
+func handleRender(hub *Hub, tick chan int, render chan Object) {
 	// previous := time.Now()
 	var v Object
 	for {
 		v = <-render
+
+		hub.broadcastAll(v)
 		fmt.Println(v)
+	}
+}
+
+func handleServer(hub *Hub) {
+	assets := http.StripPrefix("/", http.FileServer(http.Dir("client/")))
+	http.Handle("/", assets)
+	http.HandleFunc("/ws", hub.handleWebSocket)
+	err := http.ListenAndServe(":3000", nil)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -682,7 +758,7 @@ func main() {
 	c2 := NewCharger("B", "t1", "online")
 	c3 := NewCharger("C", "t2", "online")
 
-	t1 := NewCircularTrack("T", Points{0.0, 0.0}, 20.0)
+	t1 := NewCircularTrack("T", Points{180.0, 135.0}, 120.0)
 	t1.Add(v1)
 	t1.Add(v2)
 	t1.Add(v3)
@@ -699,9 +775,14 @@ func main() {
 	render := make(chan Object)
 
 	go ticker(tick)
-	go limited(done, tick)
+	// go limited(done, tick)
 	go handleInput(done)
 	go handleRuntime(t1, tick, render)
-	go handleRender(tick, render)
+
+	hub := newHub()
+	go hub.run()
+	go handleRender(hub, tick, render)
+	go handleServer(hub)
+
 	<-done
 }
