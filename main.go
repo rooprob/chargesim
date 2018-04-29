@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var Interval time.Duration
+
 // limited controls the number of tickets for debugging and testing.
 func limited(done chan int, tick chan int) {
 	for i := 0; i < 720; i++ {
@@ -26,7 +28,7 @@ func ticker(tick chan int) {
 		// previous = current
 
 		// log.Printf("step %f", elapsed)
-		time.Sleep(301 * time.Millisecond)
+		time.Sleep(Interval)
 	}
 }
 
@@ -50,9 +52,11 @@ func handleInput(done chan int) {
 			break
 		case 'f':
 			fmt.Println("faster....")
+			Interval = Interval / 2
 			break
 		case 's':
 			fmt.Println(".... slower")
+			Interval = Interval * 2
 			break
 		}
 	}
@@ -90,6 +94,8 @@ func handleServer(hub *Hub) {
 }
 
 func main() {
+
+	Interval, _ = time.ParseDuration("301ms")
 
 	v1 := NewVehicle("AAA", "Model X", "drive", 15.0)
 	v2 := NewVehicle("BBB", "Model X", "drive", 35.0)

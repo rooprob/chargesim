@@ -103,9 +103,10 @@ func (v *Vehicle) Hints() []*Hint {
 
 func (v *Vehicle) Tick() {
 	// tick
+	v.RouteToCharger() // may change state to Queued
+
 	switch v.Status {
 	case "drive":
-		v.RouteToCharger()
 		v.Drive()
 		break
 	case "parked":
@@ -169,6 +170,10 @@ func (v *Vehicle) EcoMode() {
 
 // Process Hints data to determine whether the stop and recharge, or go on.
 func (v *Vehicle) RouteToCharger() {
+
+	if v.Status != "drive" {
+		return
+	}
 
 	if len(v.hints) > 1 {
 		if v.hints[1].InRange {
