@@ -17,11 +17,6 @@ const (
 	KindClear
 )
 
-type Point struct {
-	X int `json:"x"`
-	Y int `json:"y"`
-}
-
 type User struct {
 	ID    string `json:"id"`
 	Color string `json:"color"`
@@ -63,13 +58,6 @@ func NewUserLeft(userID string) *UserLeft {
 		Kind:   KindUserLeft,
 		UserID: userID,
 	}
-}
-
-type Stroke struct {
-	Kind   int     `json:"kind"`
-	UserID string  `json:"userId"`
-	Points []Point `json:"points"`
-	Finish bool    `json:"finish"`
 }
 
 type Clear struct {
