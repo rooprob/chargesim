@@ -18,6 +18,7 @@ type Hint struct {
 	TrackLength float64
 	Dist        float64
 	Vector      float64
+	Theta       float64
 	Charger     *Charger
 	Range       float64
 	InRange     bool
@@ -133,18 +134,36 @@ func (v *Vehicle) Flat() {
 
 func (v *Vehicle) Drive() {
 	v.Status = "drive"
-	if len(v.hints) > 0 && v.hints[0].InRange == false {
-		v.EcoMode()
-	} else if len(v.hints) > 0 && v.hints[0].InRange == true {
-		v.Velocity = v.Velocity * 1.01
+
+	// intial speed
+	if v.Velocity == 0.0 {
+		v.Velocity = 1.0 * v.hints[0].Vector
 	}
+
+	// if we can make it, speed up
+	if len(v.hints) > 0 && v.hints[0].InRange == true {
+		if math.Abs(v.Velocity) < 1.0 {
+			v.Velocity = v.Velocity * 1.01
+		}
+	}
+	// try and make it to the immediate next, or slow down
+	if len(v.hints) > 0 && v.hints[0].NextRange == false {
+		v.EcoMode()
+	}
+	// try and make it to the next-next
+	if len(v.hints) > 1 {
+		if v.hints[1].InRange == false {
+			v.EcoMode()
+		}
+	}
+
 	v.Consume()
 }
 
 func (v *Vehicle) Charging() {
 	v.Status = "charging"
 	v.Charge = v.Charge + (100 * 0.01)
-	if v.Charge > 100.0 {
+	if v.Charge > 99.0 {
 		v.Drive()
 	}
 }
@@ -160,9 +179,9 @@ func (v *Vehicle) Parked() {
 }
 
 func (v *Vehicle) EcoMode() {
-	if v.Velocity < 0.4 {
-		v.Velocity = 0.4
-	} else if v.Velocity > 1.0 {
+	if math.Abs(v.Velocity) < 0.2 {
+		v.Velocity = v.Velocity * 1.19
+	} else if math.Abs(v.Velocity) > 0.4 {
 		v.Velocity = v.Velocity * 0.9
 	}
 	fmt.Println("ECO mode")
@@ -190,8 +209,11 @@ func (v *Vehicle) RouteToCharger() {
 	// Take the Hint
 	// We wont make it to the next charger, so head to nearest
 	if math.Signbit(v.hints[0].Vector) != math.Signbit(v.Velocity) {
-		v.Velocity = v.Velocity * -1
+		v.Velocity = v.Velocity * -1  // turn around
+		v.Velocity = v.Velocity * 0.5 // slow down to turn around
 	}
+
+	// Snap to a Charger and queue up (if queue not already full!)
 	if v.hints[0].Dist < 1.0 {
 		v.hints[0].Charger.Add(v)
 	}
@@ -201,26 +223,26 @@ func (v *Vehicle) CalcRange() float64 {
 	if v.Charge < 0.1 {
 		return 0.0
 	}
-	if math.Abs(v.Velocity) < 0.1 {
-		return 0.0
-	}
 	var consumption float64
-	// XXX refactor with Consume()
-	consumption = math.Abs(v.Velocity) / 5
+	if math.Abs(v.Velocity) < 0.1 {
+		consumption = 0.1 / 10
+	} else {
+		// XXX refactor with Consume()
+		consumption = math.Abs(v.Velocity) / 10
+	}
 	return (v.Charge / consumption)
 }
 
 func (v *Vehicle) Consume() {
 	// XXX refactor with CalcRange()
-	fmt.Printf("Charge is %.2f\n", v.Charge)
-	v.Charge = v.Charge - (math.Abs(v.Velocity) / 5)
+	v.Charge = v.Charge - (math.Abs(v.Velocity) / 10)
 	if v.Charge < 0.1 {
 		v.Flat()
 	}
 }
 
 func (v *Vehicle) Print(prefix string) string {
-	j, err := json.Marshal(v)
+	j, err := json.MarshalIndent(v, "", " ")
 	if err != nil {
 		log.Printf("got error")
 	}
@@ -306,8 +328,6 @@ func (c *Charger) ProcessQueue() {
 			c.queue[0].Drive()
 			_, c.queue = c.queue[0], c.queue[1:]
 		}
-	} else {
-		fmt.Println("Nothing queued")
 	}
 }
 

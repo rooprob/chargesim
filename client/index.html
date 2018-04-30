@@ -2,7 +2,7 @@
 <html>
 
   <head>
-    <title></title>
+    <title>ChargeSim</title>
     <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha256-3edrmyuQ0w65f8gfBsqowzjJe2iM6n0nKciPUp8y+7E=" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js" integrity="sha256-+JMHsXRyeTsws/tzbIh5YHQxRdKCuNjmvNcTFtY6DLc=" crossorigin="anonymous"></script>
 		<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -28,7 +28,7 @@
 
     nav {
       float: left;
-      max-width: 160px;
+      max-width: 120px;
       margin: 0;
       padding: 1em;
     }
@@ -43,7 +43,7 @@
     }
 
     article {
-      margin-left: 170px;
+      margin-left: 130px;
       border-left: 1px solid gray;
       padding: 1em;
       overflow: hidden;
@@ -100,7 +100,7 @@
   <body>
     <div class="container">
       <header>
-        <h1></h1>
+        <h1>Charge Simulation</h1>
       </header>
       <nav>
         <ul>
@@ -149,6 +149,7 @@
       const MESSAGE_CLEAR = 7;
 
       var objects = [];
+      var images = {};
 
       // websocket connection setup
       var socket = null;
@@ -181,9 +182,6 @@
         }
       }
 
-      newConnection();
-      setInterval(check, 5000);
-
       function handleMessage(message) {
         switch (message.kind) {
           case MESSAGE_CONNECTED:
@@ -199,6 +197,26 @@
             break;
           case MESSAGE_VEHICLE:
             objects.push(message);
+
+            // create image cache
+            if (!(message.model in images)) {
+              var image_path;
+              switch (message.model) {
+                case "Leaf":
+                  image_path = "/images/nissan-leaf-2018.png";
+                  break;
+                case "Model S":
+                  image_path = "/images/tesla-model-s-side-view.png";
+                  break;
+                case "Model X":
+                  image_path = "/images/tesla-model-x-side-view.png";
+                  break;
+              }
+              var image = new Image();
+              image.src = image_path;
+
+              images[message.model] = image;
+            }
             break;
           case MESSAGE_CHARGER:
             objects.push(message);
@@ -207,7 +225,6 @@
             objects = [];
             break;
         }
-        updateScreen();
       }
 
       function updateScreen() {
@@ -224,27 +241,44 @@
         return(Math.min((maxW/imgW),(maxH/imgH)));
       }
 
-      function canvasImage(ctx, path, x, y, clockwise) {
-        var image = new Image();
-        image.src = path;
-        image.style.width = '50%'
-        image.style.height = 'auto'
+      function canvasImage(key, x, y) {
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext("2d");
 
-        image.onload = function() {
-          var fw=50;
-          var fh=50;
-          var w=image.width;
-          var h=image.height;
+        var image = images[key];
 
-          // resize img to fit in the canvas
-          // You can alternately request img to fit into any specified width/height
-          var sizer=scalePreserveAspectRatio(w,h,fw,fh);
+        var fw = 50;
+        var fh = 50;
+        var w = image.width;
+        var h = image.height;
 
-          //if (clockwise)
-          //  ctx.scale(-1,1);
-          ctx.drawImage(image, 0, 0, w, h, x - w*sizer/2, y - h*sizer/2, w*sizer, h*sizer);
-          //ctx.setTransform(1, 0, 0, 1, 0, 0);
-        }
+        var sizer = scalePreserveAspectRatio(w,h,fw,fh);
+
+        ctx.save();
+        ctx.translate(0, canvas.height);
+        ctx.scale(1,-1);
+        // debug dot
+        /*
+           ctx.beginPath();
+           ctx.strokeStyle = "#000";
+           ctx.lineWidth=1;
+           ctx.arc(10,10,10,0,2*Math.PI);
+           ctx.stroke(); */
+
+        // offset x with scaled image
+        x = x - w*sizer/2;
+        // offset y, translating against
+        y = canvas.height - y - (h*sizer) ;
+
+        ctx.drawImage(image, 0, 0, w, h, x, y, w*sizer, h*sizer);
+        ctx.restore();
+      }
+
+      function initCanvas() {
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext("2d");
+        ctx.transform(1, 0, 0, -1, 0, canvas.height);
+        console.log("fyi: transforming canvas to origin bottom-left.");
       }
 
       function updateCanvas() {
@@ -255,7 +289,6 @@
         // update canvas
         var canvas = document.getElementById('canvas');
         var ctx = canvas.getContext("2d");
-
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.lineJoin = 'round';
         ctx.lineWidth = 4;
@@ -271,19 +304,7 @@
               ctx.stroke();
               break;
             case MESSAGE_VEHICLE:
-              var image_path;
-              switch (message.model) {
-                case "Leaf": image_path = "/images/nissan-leaf-2018.png";
-                  break;
-                case "Model S": image_path = "/images/tesla-model-s-side-view.png";
-                  break;
-                case "Model X": image_path = "/images/tesla-model-x-side-view.png";
-                  break;
-              }
-              var clockwise;
-              if (message.velocity < 0.0)
-                clockwise=true;
-              canvasImage(ctx, image_path, message.points.X, message.points.Y, clockwise);
+              canvasImage(message.model, message.points.X, message.points.Y);
               break;
             case MESSAGE_CHARGER:
               ctx.beginPath();
@@ -341,7 +362,17 @@
         var html = templateScript({cols: cols, data: data});
         $('#vehicle-panel').html(html);
       }
+
+      // main
+
+      initCanvas();
+      newConnection();
+      setInterval(function() {
+        updateScreen();
+        check()
+      }, 200);
 		});
+
   </script>
 
   <script id="table-panel-tmpl" type="text/x-handlebars-template">

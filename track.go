@@ -151,6 +151,17 @@ func (self *CircularTrack) String() string {
 	return self.Print("/")
 }
 
+func (self *CircularTrack) ZeroObjects() {
+	// create a new slice for child radians
+	rads := make([]float64, len(self.childs))
+	for idx, _ := range self.childs {
+		theta := 0.0
+		rads[idx] = theta
+	}
+	self.rads = rads
+	self.ComputeNewCoords()
+}
+
 func (self *CircularTrack) RandomizeObjects() {
 	rand.Seed(42)
 
@@ -159,13 +170,14 @@ func (self *CircularTrack) RandomizeObjects() {
 	for idx, _ := range self.childs {
 		theta := rand.Float64() * 2 * math.Pi
 		rads[idx] = theta
+
+		fmt.Printf("RandomizeObjects: %d %.2f\n", theta)
 	}
 	self.rads = rads
 	self.ComputeNewCoords()
 }
 
 func (self *CircularTrack) Tick() {
-	fmt.Println("Track Tick")
 	for i := 0; i < len(self.childs); i++ {
 		self.childs[i].Tick()
 	}
@@ -216,36 +228,36 @@ func (self *CircularTrack) ComputeNewCoords() {
 	self.points = points
 }
 
-func (self *CircularTrack) Direction(theta, f float64) float64 {
+func (self *CircularTrack) Direction(theta, velocity float64) float64 {
 
 	// Anticlockwise is a positive increment in radians
-	// from 0 at 90degress, upto 2*pi back at the start.
+	// from 0 at 90degrees, upto 2*pi back at the start.
 	// Vehicles transiting anti-clockwise are +ve,
 	// clockwise -ve
 	if math.Signbit(theta) {
 		// car is at 10o'clock, charger at 1o'clock
-		if math.Signbit(f) {
+		if math.Signbit(velocity) {
 			// car is going clockwise
 			// keep going
-			fmt.Println("Keep going...")
+			fmt.Println("Keep going clockwise...")
 			return -1
 		} else {
 			// car is going anticlockwise
 			// gone too far, turn back
-			fmt.Println("Turning back...")
+			fmt.Println("Turning back clockwise...")
 			return -1
 		}
 	} else {
 		// charger is at 10o'clock, vehicle at 1o'clock
-		if math.Signbit(f) {
+		if math.Signbit(velocity) {
 			// gone too far,
 			// turn back
-			fmt.Println("Turning back...")
+			fmt.Println("Turning back... anticlockwise")
 			return 1
 		} else {
 			// car is going anticlockwise,
 			// continue
-			fmt.Println("Keep going...")
+			fmt.Println("Keep going... anticlockwise")
 			return 1
 		}
 	}
@@ -267,7 +279,6 @@ func (self *CircularTrack) InRange(l, r float64) bool {
 func (self *CircularTrack) ComputeHints() {
 	// TODO look into composition instead of this.
 
-	fmt.Println("ComputeHints")
 	// map of supported types
 	vi := make(map[int]*Vehicle, len(self.childs))
 	ci := make(map[int]*Charger, len(self.childs))
@@ -298,6 +309,8 @@ func (self *CircularTrack) ComputeHints() {
 
 			// directional, -ve indicating clockwise
 			theta = cr - vr
+			fmt.Printf("ch %.2f - vehicle %.2f = theta %.2f\n",
+				cr, vr, theta)
 
 			// correct for going beyond pi (180deg)
 			if theta > math.Pi {
@@ -322,6 +335,7 @@ func (self *CircularTrack) ComputeHints() {
 			hints = append(hints, &Hint{
 				TrackLength: self.Length(2 * math.Pi),
 				Dist:        self.Length(thetaKeys[kt]),
+				Theta:       thetaKeys[kt],
 				Vector:      self.Direction(thetaKeys[kt], v.Velocity),
 				Range:       v.CalcRange(),
 				InRange:     self.InRange(self.Length(math.Abs(thetaKeys[kt])), v.CalcRange()),
