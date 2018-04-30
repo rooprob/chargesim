@@ -97,10 +97,10 @@ func main() {
 
 	Interval, _ = time.ParseDuration("301ms")
 
-	v1 := NewVehicle("AAA", "Model X", "drive", 15.0)
-	v2 := NewVehicle("BBB", "Model X", "drive", 35.0)
-	v3 := NewVehicle("CCC", "Model S", "drive", 25.0)
-	v4 := NewVehicle("ZZZ", "Leaf", "drive", 70.0)
+	v1 := NewVehicle("AAA", "Model X", "drive", 99.0)
+	/*	v2 := NewVehicle("BBB", "Model X", "drive", 35.0)
+		v3 := NewVehicle("CCC", "Model S", "drive", 25.0)
+		v4 := NewVehicle("ZZZ", "Leaf", "drive", 70.0) */
 
 	c1 := NewCharger("A", "t1", "online")
 	c2 := NewCharger("B", "t1", "online")
@@ -108,9 +108,9 @@ func main() {
 
 	t1 := NewCircularTrack("T", Points{180.0, 135.0}, 120.0)
 	t1.Add(v1)
-	t1.Add(v2)
+	/*t1.Add(v2)
 	t1.Add(v3)
-	t1.Add(v4)
+	t1.Add(v4) */
 	t1.Add(c1)
 	t1.Add(c2)
 	t1.Add(c3)
