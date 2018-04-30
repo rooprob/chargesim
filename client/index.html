@@ -241,11 +241,11 @@
         return(Math.min((maxW/imgW),(maxH/imgH)));
       }
 
-      function canvasImage(key, x, y) {
+      function canvasImage(message) {
         var canvas = document.getElementById('canvas');
         var ctx = canvas.getContext("2d");
 
-        var image = images[key];
+        var image = images[message.model];
 
         var fw = 50;
         var fh = 50;
@@ -253,25 +253,41 @@
         var h = image.height;
 
         var sizer = scalePreserveAspectRatio(w,h,fw,fh);
+        var x, y;
 
-        ctx.save();
-        ctx.translate(0, canvas.height);
-        ctx.scale(1,-1);
-        // debug dot
-        /*
-           ctx.beginPath();
-           ctx.strokeStyle = "#000";
-           ctx.lineWidth=1;
-           ctx.arc(10,10,10,0,2*Math.PI);
-           ctx.stroke(); */
+        switch (message.status) {
+          case "flat":
+            // image will be upside because we transformed the canvas,
+            // so an upside down car seems apt,
+            x = message.points.X;
+            y = message.points.Y;
+            x = x - w*sizer/2;
+            y = y - h*sizer/2 ;
+            ctx.drawImage(image, 0, 0, w, h, x, y, w*sizer, h*sizer);
+            break
+          default:
+            // reflip the image and fix x,y accordingly
+            x = message.points.X;
+            y = message.points.Y;
 
-        // offset x with scaled image
-        x = x - w*sizer/2;
-        // offset y, translating against
-        y = canvas.height - y - (h*sizer) ;
+            ctx.save();
+            ctx.translate(0, canvas.height);
+            ctx.scale(1,-1);
+            // debug dot
+            /*
+               ctx.beginPath();
+               ctx.strokeStyle = "#000";
+               ctx.lineWidth=1;
+               ctx.arc(10,10,10,0,2*Math.PI);
+               ctx.stroke(); */
 
-        ctx.drawImage(image, 0, 0, w, h, x, y, w*sizer, h*sizer);
-        ctx.restore();
+            // offset x with scaled image
+            x = x - w*sizer/2;
+            // offset y, translating against
+            y = canvas.height - y - (h*sizer) ;
+            ctx.drawImage(image, 0, 0, w, h, x, y, w*sizer, h*sizer);
+            ctx.restore();
+        }
       }
 
       function initCanvas() {
@@ -304,7 +320,7 @@
               ctx.stroke();
               break;
             case MESSAGE_VEHICLE:
-              canvasImage(message.model, message.points.X, message.points.Y);
+              canvasImage(message);
               break;
             case MESSAGE_CHARGER:
               ctx.beginPath();
