@@ -184,7 +184,7 @@ func (v *Vehicle) EcoMode() {
 	} else if math.Abs(v.Velocity) > 0.4 {
 		v.Velocity = v.Velocity * 0.9
 	}
-	fmt.Println("ECO mode")
+	fmt.Printf("ECO mode: %.2f\n", v.Velocity)
 }
 
 // Process Hints data to determine whether the stop and recharge, or go on.
@@ -195,14 +195,21 @@ func (v *Vehicle) RouteToCharger() {
 	}
 
 	if len(v.hints) > 1 {
+		// we can make it to the charger after nearest
 		if v.hints[1].InRange {
 			return
 		}
 	} else if len(v.hints) == 1 {
+		// we can make it all the way around!
 		if v.hints[0].NextRange {
 			return
 		}
+		// we can make it!
+		if v.hints[0].InRange {
+			return
+		}
 	} else if len(v.hints) == 0 {
+		// oh dear, keeping going...
 		return
 	}
 

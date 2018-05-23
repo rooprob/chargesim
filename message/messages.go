@@ -1,5 +1,10 @@
 package message
 
+import (
+	"github.com/rhymond/go-money"
+	uuid "github.com/satori/go.uuid"
+)
+
 const (
 	// KindConnected is sent when user connects
 	KindConnected = iota + 1
@@ -15,6 +20,8 @@ const (
 	KindCharger
 	// KindClear message is sent when a user clears the screen
 	KindClear
+	// KindTransaction
+	KindTransaction
 )
 
 type User struct {
@@ -63,4 +70,19 @@ func NewUserLeft(userID string) *UserLeft {
 type Clear struct {
 	Kind   int    `json:"kind"`
 	UserID string `json:"userId"`
+}
+
+type Transaction struct {
+	Kind   int          `json:"kind"`
+	Id     string       `json:"id"`
+	Units  int          `json:"units"`
+	Amount money.Amount `json:"amount"`
+}
+
+func NewTransaction(units int, amount money.Amount) *Transaction {
+	return &Transaction{
+		Kind:   KindTransaction,
+		Id:     uuid.Must(uuid.NewV4()).String(),
+		Amount: amount,
+	}
 }

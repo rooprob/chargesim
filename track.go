@@ -313,8 +313,8 @@ func (self *CircularTrack) ComputeHints() {
 				cr, vr, theta)
 
 			// correct for going beyond pi (180deg)
-			if theta > math.Pi {
-				theta = (2*math.Pi - theta) * -1
+			if math.Abs(theta) > math.Pi {
+				theta = (2*math.Pi - math.Abs(theta)) * -1
 			}
 			// track map of radians and Charger
 			thetas[theta] = ci[cdx]
